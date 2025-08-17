@@ -1,4 +1,4 @@
-# IKFOMD: IKFoM Designer
+# IKFoM Designer (`ikfomd`)
 
 ## Introduction
 
