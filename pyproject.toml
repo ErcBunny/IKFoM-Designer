@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ikfmd"
+version = "0.0.1"
+authors = [
+    { name = "Yueqian Liu", email = "yueqianliu@outlook.com" },
+]
+description = "A small tool for generating functions for IKFoM."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "casadi",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
