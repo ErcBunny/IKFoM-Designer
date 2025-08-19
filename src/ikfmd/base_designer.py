@@ -23,9 +23,9 @@ class BaseDesigner(ABC):
         self.v: list[ca.MX] = self._define_measurement_noises()
         assert len(self.x) != 0
         assert len(self.dx) != 0
-        assert len(self.u) != 0
         assert len(self.w) != 0
         assert len(self.v) != 0
+        assert len(self.x) == len(self.dx)
 
         # convert lists to vectors for jacobian calculation
         self.dx_vec = list_to_vec(self.dx)
@@ -147,27 +147,27 @@ class BaseDesigner(ABC):
 
     @abc.abstractmethod
     def _define_parameters(self) -> list[ca.MX]:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _define_states(self) -> list[ca.MX]:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _define_states_perturbation(self) -> list[ca.MX]:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _define_inputs(self) -> list[ca.MX]:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _define_process_noises(self) -> list[ca.MX]:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _define_measurement_noises(self) -> list[ca.MX]:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _dyn(
@@ -177,7 +177,7 @@ class BaseDesigner(ABC):
         process_noises: list[ca.MX],
         parameters: list[ca.MX],
     ) -> ca.MX:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _meas(
@@ -186,7 +186,7 @@ class BaseDesigner(ABC):
         measurement_noises: list[ca.MX],
         parameters: list[ca.MX],
     ) -> list[ca.MX]:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _perturb_states(
@@ -194,7 +194,7 @@ class BaseDesigner(ABC):
         states: list[ca.MX],
         perturbation: list[ca.MX],
     ) -> list[ca.MX]:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _get_meas_perturbation(
@@ -202,4 +202,4 @@ class BaseDesigner(ABC):
         meas_perturbed: list[ca.MX],
         meas: list[ca.MX],
     ) -> ca.MX:
-        pass
+        raise NotImplementedError
