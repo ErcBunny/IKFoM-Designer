@@ -11,7 +11,7 @@ class BaseDesigner(ABC):
     def __init__(
         self,
         code_gen_name: str,
-        code_gen_opts: dict,
+        code_gen_opts: dict = dict(cpp=True, with_header=True, main=False, verbose=True, with_mem=False),
         enforce_dense: bool = True,
     ):
         # define symbols
@@ -128,6 +128,14 @@ class BaseDesigner(ABC):
 
     def generate_code(self):
         self.code_gen.generate()
+
+    def print_symbols(self):
+        print("p =", self.p)
+        print("x =", self.x)
+        print("dx =", self.dx)
+        print("u =", self.u)
+        print("w =", self.w)
+        print("v =", self.v)
 
     def print_expr(self):
         print("f =\n", self.expr_dyn, "\n")
