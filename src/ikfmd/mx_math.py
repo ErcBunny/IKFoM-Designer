@@ -14,7 +14,7 @@ def boxplus_dcm_small_d(dcm: ca.MX, delta: ca.MX) -> ca.MX:
 
 
 def boxminus_dcm_small_d(dcm_perturbed: ca.MX, dcm: ca.MX) -> ca.MX:
-    d = dcm_perturbed.T @ dcm
+    d = dcm.T @ dcm_perturbed
     return ca.inv_skew(0.5 * (d - d.T))
 
 
