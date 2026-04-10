@@ -3,7 +3,9 @@ from abc import ABC
 
 import casadi as ca
 
-from .mx_util import list_to_vec
+from .sys_dynamics import SysDynamics
+from .meas_block import MeasBlockInfo, MeasBlock
+from .meas_combo import MeasCombo
 
 
 class BaseDesigner(ABC):
@@ -20,111 +22,68 @@ class BaseDesigner(ABC):
         self.dx: list[ca.MX] = self._define_states_perturbation()
         self.u: list[ca.MX] = self._define_inputs()
         self.w: list[ca.MX] = self._define_process_noises()
-        self.v: list[ca.MX] = self._define_measurement_noises()
+        self.meas_blk_info: list[MeasBlockInfo] = self._define_measurement_blocks()
+        self.meas_combo: dict[str, tuple[str, ...]] = self._define_measurement_combos()
         assert len(self.x) != 0
         assert len(self.dx) != 0
         assert len(self.w) != 0
-        assert len(self.v) != 0
         assert len(self.x) == len(self.dx)
 
-        # convert lists to vectors for jacobian calculation
-        self.dx_vec = list_to_vec(self.dx)
-        self.w_vec = list_to_vec(self.w)
-        self.v_vec = list_to_vec(self.v)
-
-        # calculate dynamics and measurement expressions
-        self.expr_dyn = self._dyn(self.x, self.u, self.w, self.p)
-        self.expr_meas = self._meas(self.x, self.v, self.p)
-
-        # calculate jacobian
-        self.jac_df_dx: ca.MX = ca.jacobian(
-            self._dyn(
-                self._perturb_states(self.x, self.dx),
-                self.u,
-                [ca.MX.zeros(w.shape) for w in self.w],
-                self.p,
-            ),
-            self.dx_vec,
-        )
-        self.jac_df_dw: ca.MX = ca.jacobian(
-            self.expr_dyn,
-            self.w_vec,
-        )
-        self.jac_dh_dx: ca.MX = ca.jacobian(
-            self._get_meas_perturbation(
-                self._meas(
-                    self._perturb_states(self.x, self.dx),
-                    [ca.MX.zeros(v.shape) for v in self.v],
-                    self.p,
-                ),
-                self._meas(self.x, [ca.MX.zeros(v.shape) for v in self.v], self.p),
-            ),
-            self.dx_vec,
-        )
-        self.jac_dh_dv: ca.MX = ca.jacobian(
-            self._get_meas_perturbation(
-                self._meas(self.x, self.v, self.p),
-                self._meas(self.x, [ca.MX.zeros(v.shape) for v in self.v], self.p),
-            ),
-            self.v_vec,
+        # prepare f, df_dx, df_dw
+        self.system_dynamics = SysDynamics(
+            self.p,
+            self.x,
+            self.dx,
+            self.u,
+            self.w,
+            self._dyn,
+            self._perturb_states,
+            enforce_dense,
         )
 
-        # densify expressions if needed
-        if enforce_dense:
-            if not self.expr_dyn.is_dense():
-                self.expr_dyn = ca.densify(self.expr_dyn)
-            for i, h in enumerate(self.expr_meas):
-                if not h.is_dense():
-                    self.expr_meas[i] = ca.densify(h)
-            if not self.jac_df_dx.is_dense():
-                self.jac_df_dx = ca.densify(self.jac_df_dx)
-            if not self.jac_df_dw.is_dense():
-                self.jac_df_dw = ca.densify(self.jac_df_dw)
-            if not self.jac_dh_dx.is_dense():
-                self.jac_dh_dx = ca.densify(self.jac_dh_dx)
-            if not self.jac_dh_dv.is_dense():
-                self.jac_dh_dv = ca.densify(self.jac_dh_dv)
+        # prepare measurement blocks
+        self.meas_blk = []
+        for info in self.meas_blk_info:
+            self.meas_blk.append(
+                MeasBlock(
+                    blk_info=info,
+                    p=self.p,
+                    x=self.x,
+                    dx=self.dx,
+                    perturb_states=self._perturb_states,
+                    enforce_dense=enforce_dense,
+                )
+            )
 
-        # define functions
-        self.f = ca.Function(
-            "f",
-            [*self.x, *self.u, self.w_vec, *self.p],
-            [self.expr_dyn],
-        )
-        self.df_dx = ca.Function(
-            "df_dx",
-            [*self.x, self.dx_vec, *self.u, *self.p],
-            [self.jac_df_dx],
-        )
-        self.df_dw = ca.Function(
-            "df_dw",
-            [*self.x, *self.u, self.w_vec, *self.p],
-            [self.jac_df_dw],
-        )
-        self.h = ca.Function(
-            "h",
-            [*self.x, self.v_vec, *self.p],
-            self.expr_meas,
-        )
-        self.dh_dx = ca.Function(
-            "dh_dx",
-            [*self.x, self.dx_vec, *self.p],
-            [self.jac_dh_dx],
-        )
-        self.dh_dv = ca.Function(
-            "dh_dv",
-            [*self.x, self.v_vec, *self.p],
-            [self.jac_dh_dv],
-        )
+        # prepare measurement combos
+        self.meas_blk_map: dict[str, MeasBlock] = {
+            blk.info.name: blk for blk in self.meas_blk
+        }
+        self.meas_cmb: dict[str, MeasCombo] = {}
+        for combo_name, block_names in self.meas_combo.items():
+            self.meas_cmb[combo_name] = MeasCombo(
+                name=combo_name,
+                block_names=tuple(block_names),
+                blocks=self.meas_blk_map,
+                x=self.x,
+                dx=self.dx,
+                p=self.p,
+                enforce_dense=enforce_dense,
+            )
 
         # init code generator
         self.code_gen = ca.CodeGenerator(code_gen_name, code_gen_opts)
-        self.code_gen.add(self.f)
-        self.code_gen.add(self.df_dx)
-        self.code_gen.add(self.df_dw)
-        self.code_gen.add(self.h)
-        self.code_gen.add(self.dh_dx)
-        self.code_gen.add(self.dh_dv)
+        self.code_gen.add(self.system_dynamics.f)
+        self.code_gen.add(self.system_dynamics.df_dx)
+        self.code_gen.add(self.system_dynamics.df_dw)
+        for blk in self.meas_blk:
+            self.code_gen.add(blk.h)
+            self.code_gen.add(blk.dh_dx)
+            self.code_gen.add(blk.dh_dv)
+        for cmb in self.meas_cmb.values():
+            self.code_gen.add(cmb.h)
+            self.code_gen.add(cmb.dh_dx)
+            self.code_gen.add(cmb.dh_dv)
 
     def generate_code(self):
         self.code_gen.generate()
@@ -135,23 +94,24 @@ class BaseDesigner(ABC):
         print("dx =", self.dx)
         print("u =", self.u)
         print("w =", self.w)
-        print("v =", self.v)
 
     def print_expr(self):
-        print("f =\n", self.expr_dyn, "\n")
-        print("h =\n", self.expr_meas, "\n")
-        print("df/dx =\n", self.jac_df_dx, "\n")
-        print("df/dw =\n", self.jac_df_dw, "\n")
-        print("dh/dx =\n", self.jac_dh_dx, "\n")
-        print("dh/dv =\n", self.jac_dh_dv, "\n")
+        self.system_dynamics.print_expr()
+        for blk in self.meas_blk:
+            print(f"[block:{blk.info.name}]")
+            blk.print_expr()
+        for name, cmb in self.meas_cmb.items():
+            print(f"[combo:{name}]")
+            cmb.print_expr()
 
     def print_func_io(self):
-        print(self.f, "with args:", "[*x, *u, w (vec), *p]")
-        print(self.df_dx, "with args:", "[*x, dx (vec), *u, *p]")
-        print(self.df_dw, "with args:", "[*x, *u, w (vec), *p]")
-        print(self.h, "with args:", "[*x, v (vec), *p]")
-        print(self.dh_dx, "with args:", "[*x, dx (vec), *p]")
-        print(self.dh_dv, "with args:", "[*x, v (vec), *p]")
+        self.system_dynamics.print_func()
+        for blk in self.meas_blk:
+            print(f"[block:{blk.info.name}]")
+            blk.print_func()
+        for name, cmb in self.meas_cmb.items():
+            print(f"[combo:{name}]")
+            cmb.print_func()
 
     @abc.abstractmethod
     def _define_parameters(self) -> list[ca.MX]:
@@ -174,7 +134,11 @@ class BaseDesigner(ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _define_measurement_noises(self) -> list[ca.MX]:
+    def _define_measurement_blocks(self) -> list[MeasBlockInfo]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _define_measurement_combos(self) -> dict[str, tuple[str, ...]]:
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -188,26 +152,9 @@ class BaseDesigner(ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _meas(
-        self,
-        states: list[ca.MX],
-        measurement_noises: list[ca.MX],
-        parameters: list[ca.MX],
-    ) -> list[ca.MX]:
-        raise NotImplementedError
-
-    @abc.abstractmethod
     def _perturb_states(
         self,
         states: list[ca.MX],
         perturbation: list[ca.MX],
     ) -> list[ca.MX]:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def _get_meas_perturbation(
-        self,
-        meas_perturbed: list[ca.MX],
-        meas: list[ca.MX],
-    ) -> ca.MX:
         raise NotImplementedError

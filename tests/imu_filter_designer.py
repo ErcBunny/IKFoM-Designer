@@ -1,6 +1,6 @@
 import casadi as ca
 
-from ikfmd import BaseDesigner, boxplus_dcm_small_d
+from ikfmd import BaseDesigner, MeasBlockInfo, boxplus_dcm_small_d
 
 
 class ImuFilterDesigner(BaseDesigner):
@@ -20,8 +20,23 @@ class ImuFilterDesigner(BaseDesigner):
     def _define_process_noises(self) -> list[ca.MX]:
         return [ca.MX.sym("n_ang_vel", 3)]
 
-    def _define_measurement_noises(self) -> list[ca.MX]:
-        return [ca.MX.sym("n_lin_acc", 3)]
+    def _define_measurement_blocks(self) -> list[MeasBlockInfo]:
+        def gravity_body_expr(states, measurement_noises, parameters):
+            # This unpacking order must stay aligned with `_define_states()`.
+            R = states[0]
+            return R.T @ ca.MX([0, 0, 1]) + measurement_noises[0]
+
+        return [
+            MeasBlockInfo(
+                name="gravity_body",
+                noises=(ca.MX.sym("n_lin_acc", 3),),
+                expr=gravity_body_expr,
+                boxminus=lambda meas_perturbed, meas: meas_perturbed - meas,
+            )
+        ]
+
+    def _define_measurement_combos(self) -> dict[str, tuple[str, ...]]:
+        return {}
 
     def _dyn(
         self,
@@ -32,27 +47,12 @@ class ImuFilterDesigner(BaseDesigner):
     ) -> ca.MX:
         return inputs[0] + process_noises[0]
 
-    def _meas(
-        self,
-        states: list[ca.MX],
-        measurement_noises: list[ca.MX],
-        parameters: list[ca.MX],
-    ) -> list[ca.MX]:
-        return [states[0].T @ ca.MX([0, 0, 1]) + measurement_noises[0]]
-
     def _perturb_states(
         self,
         states: list[ca.MX],
         perturbation: list[ca.MX],
     ) -> list[ca.MX]:
         return [boxplus_dcm_small_d(states[0], perturbation[0])]
-
-    def _get_meas_perturbation(
-        self,
-        meas_perturbed: list[ca.MX],
-        meas: list[ca.MX],
-    ) -> ca.MX:
-        return meas_perturbed[0] - meas[0]
 
 
 if __name__ == "__main__":
