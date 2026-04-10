@@ -51,7 +51,7 @@ class SysDynamics:
             w_vec,
         )
 
-        # densify expressions if sepcified
+        # densify expressions if specified
         if enforce_dense:
             self.expr_f = densify_mx(self.expr_f)
             self.expr_df_dx = densify_mx(self.expr_df_dx)
